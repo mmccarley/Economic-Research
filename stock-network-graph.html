@@ -90,6 +90,24 @@
     text-shadow: 0 1px 3px rgba(0,0,0,0.7);
   }
 
+  .highlight-ring {
+    fill: none;
+    stroke: #ffffff;
+    stroke-width: 2.5;
+    pointer-events: none;
+  }
+  .highlight-pulse {
+    fill: none;
+    stroke: #ffffff;
+    stroke-width: 1.5;
+    pointer-events: none;
+    animation: pulseRing 2.4s ease-out infinite;
+  }
+  @keyframes pulseRing {
+    0%   { stroke-opacity: 0.7; transform: scale(1); }
+    100% { stroke-opacity: 0;   transform: scale(1.8); }
+  }
+
   #tooltip {
     position: fixed;
     display: none;
@@ -235,6 +253,7 @@ const stocks = [
   { ticker: "BLK",   name: "BlackRock Inc.",      sector: "Finance",    marketCap: 140  },
   { ticker: "C",     name: "Citigroup Inc.",      sector: "Finance",    marketCap: 120  },
   { ticker: "AXP",   name: "American Express",    sector: "Finance",    marketCap: 175  },
+  { ticker: "PGR",   name: "Progressive Corp.",   sector: "Finance",    marketCap: 155  },
   // Healthcare
   { ticker: "UNH",   name: "UnitedHealth Grp",    sector: "Healthcare", marketCap: 520  },
   { ticker: "JNJ",   name: "Johnson & Johnson",   sector: "Healthcare", marketCap: 390  },
@@ -626,15 +645,29 @@ function render(threshold, numClusters) {
     .attr("stroke-width", 1.5)
     .attr("filter", "url(#glow)");
 
-  // Labels inside large nodes
+  // Highlight ring + pulse for PGR
+  const HIGHLIGHT_TICKER = "PGR";
+  nodeSel.filter(d => d.ticker === HIGHLIGHT_TICKER)
+    .append("circle")
+    .attr("class", "highlight-pulse")
+    .attr("r", d => d.radius + 8)
+    .style("transform-origin", "0 0");
+
+  nodeSel.filter(d => d.ticker === HIGHLIGHT_TICKER)
+    .append("circle")
+    .attr("class", "highlight-ring")
+    .attr("r", d => d.radius + 4);
+
+  // Labels inside large nodes (PGR always visible)
   nodeSel.append("text")
     .attr("class", "node-label")
     .attr("font-size", d => {
+      if (d.ticker === HIGHLIGHT_TICKER) return Math.max(9, d.radius > 30 ? 11 : 9);
       if (d.radius > 30) return 11;
       if (d.radius > 20) return 9;
       return 0;
     })
-    .attr("opacity", d => d.radius > 18 ? 1 : 0)
+    .attr("opacity", d => (d.ticker === HIGHLIGHT_TICKER || d.radius > 18) ? 1 : 0)
     .text(d => d.ticker);
 
   // ── Interaction ──
@@ -667,10 +700,12 @@ function render(threshold, numClusters) {
         if (ti === d.index) connected.add(si);
       });
 
-      nodeSel.select("circle")
-        .attr("fill-opacity", n => connected.has(n.index) ? 0.9 : 0.12);
+      nodeSel.select(".node-circle")
+        .attr("fill-opacity", n =>
+          connected.has(n.index) ? 0.9 : (n.ticker === HIGHLIGHT_TICKER ? 0.5 : 0.12));
       nodeSel.select("text")
         .attr("opacity", n => {
+          if (n.ticker === HIGHLIGHT_TICKER) return connected.has(n.index) ? 1 : 0.6;
           if (n.radius <= 18) return 0;
           return connected.has(n.index) ? 1 : 0.12;
         });
