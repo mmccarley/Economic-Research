@@ -198,9 +198,8 @@
 <div id="tooltip">
   <div class="tt-ticker"></div>
   <div class="tt-name"></div>
-  <div class="tt-row"><span class="tt-label">Sector</span><span class="tt-value tt-sector"></span></div>
-  <div class="tt-row"><span class="tt-label">Market Cap</span><span class="tt-value tt-mcap"></span></div>
   <div class="tt-row"><span class="tt-label">Cluster</span><span class="tt-value tt-cluster"></span></div>
+  <div class="tt-row"><span class="tt-label">Market Cap</span><span class="tt-value tt-mcap"></span></div>
   <div class="tt-row"><span class="tt-label">Connections</span><span class="tt-value tt-conn"></span></div>
   <div class="tt-row"><span class="tt-label">Avg Correlation</span><span class="tt-value tt-corr"></span></div>
 </div>
@@ -681,10 +680,9 @@ function render(threshold, numClusters) {
         ? (corrSum[d.index] / connCount[d.index]).toFixed(3) : "N/A";
       tooltip.select(".tt-ticker").text(d.ticker).style("color", color(d));
       tooltip.select(".tt-name").text(d.name);
-      tooltip.select(".tt-sector").text(d.sector);
-      tooltip.select(".tt-mcap").text(formatCap(d.marketCap));
       tooltip.select(".tt-cluster").text(`Cluster ${d.cluster + 1}`)
         .style("color", color(d));
+      tooltip.select(".tt-mcap").text(formatCap(d.marketCap));
       tooltip.select(".tt-conn").text(connCount[d.index]);
       tooltip.select(".tt-corr").text(avgCorr);
       tooltip.style("display", "block");
