@@ -1,0 +1,614 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Stock Network Graph</title>
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #0a0e17;
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    color: #c8d6e5;
+    overflow: hidden;
+    height: 100vh;
+  }
+
+  #header {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 10;
+    padding: 16px 28px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: linear-gradient(180deg, rgba(10,14,23,0.95) 60%, rgba(10,14,23,0));
+    pointer-events: none;
+  }
+  #header > * { pointer-events: auto; }
+  #header h1 {
+    font-size: 18px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    color: #e4e8f0;
+  }
+  #header h1 span { color: #6c8cff; }
+
+  #controls {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+  }
+  #controls label {
+    font-size: 12px;
+    color: #8899aa;
+  }
+  #controls input[type=range] {
+    width: 110px;
+    accent-color: #6c8cff;
+    cursor: pointer;
+  }
+  #controls select {
+    background: #151b2b;
+    color: #c8d6e5;
+    border: 1px solid #2a3550;
+    border-radius: 6px;
+    padding: 5px 10px;
+    font-size: 12px;
+    cursor: pointer;
+  }
+
+  #graph-container {
+    width: 100vw;
+    height: 100vh;
+  }
+
+  .link {
+    stroke-linecap: round;
+  }
+
+  .node-circle {
+    cursor: pointer;
+    transition: filter 0.2s;
+  }
+  .node-circle:hover {
+    filter: brightness(1.35) drop-shadow(0 0 8px rgba(108,140,255,0.5));
+  }
+
+  .node-label {
+    fill: #fff;
+    text-anchor: middle;
+    dominant-baseline: central;
+    font-weight: 600;
+    pointer-events: none;
+    text-shadow: 0 1px 3px rgba(0,0,0,0.7);
+  }
+
+  #tooltip {
+    position: fixed;
+    display: none;
+    background: rgba(18, 24, 42, 0.96);
+    border: 1px solid #2a3550;
+    border-radius: 10px;
+    padding: 14px 18px;
+    font-size: 13px;
+    pointer-events: none;
+    z-index: 100;
+    backdrop-filter: blur(8px);
+    box-shadow: 0 8px 32px rgba(0,0,0,0.45);
+    min-width: 180px;
+  }
+  #tooltip .tt-ticker {
+    font-size: 16px;
+    font-weight: 700;
+    margin-bottom: 2px;
+  }
+  #tooltip .tt-name {
+    font-size: 11px;
+    color: #8899aa;
+    margin-bottom: 8px;
+  }
+  #tooltip .tt-row {
+    display: flex;
+    justify-content: space-between;
+    margin: 3px 0;
+    font-size: 12px;
+  }
+  #tooltip .tt-label { color: #8899aa; }
+  #tooltip .tt-value { font-weight: 600; }
+
+  #legend {
+    position: fixed;
+    bottom: 20px;
+    left: 20px;
+    background: rgba(18, 24, 42, 0.9);
+    border: 1px solid #2a3550;
+    border-radius: 10px;
+    padding: 14px 18px;
+    font-size: 12px;
+    z-index: 10;
+    backdrop-filter: blur(6px);
+  }
+  #legend h3 {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: #8899aa;
+    margin-bottom: 8px;
+  }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 5px 0;
+  }
+  .legend-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+  }
+
+  #info-hint {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    font-size: 11px;
+    color: #556677;
+    z-index: 10;
+  }
+</style>
+</head>
+<body>
+
+<div id="header">
+  <h1><span>&#9670;</span> Stock Correlation Network</h1>
+  <div id="controls">
+    <label>Correlation threshold
+      <input type="range" id="threshold-slider" min="0.3" max="0.95" step="0.05" value="0.6">
+      <span id="threshold-value">0.60</span>
+    </label>
+    <label>Clustering
+      <select id="cluster-method">
+        <option value="sector">By Sector</option>
+        <option value="community">By Community</option>
+      </select>
+    </label>
+  </div>
+</div>
+
+<div id="graph-container"></div>
+
+<div id="tooltip">
+  <div class="tt-ticker"></div>
+  <div class="tt-name"></div>
+  <div class="tt-row"><span class="tt-label">Sector</span><span class="tt-value tt-sector"></span></div>
+  <div class="tt-row"><span class="tt-label">Market Cap</span><span class="tt-value tt-mcap"></span></div>
+  <div class="tt-row"><span class="tt-label">Connections</span><span class="tt-value tt-conn"></span></div>
+  <div class="tt-row"><span class="tt-label">Avg Correlation</span><span class="tt-value tt-corr"></span></div>
+</div>
+
+<div id="legend"></div>
+<div id="info-hint">Scroll to zoom &middot; Drag nodes &middot; Hover for details</div>
+
+<script>
+// ── Stock universe with realistic attributes ──────────────────────────
+const stocks = [
+  // Technology
+  { ticker: "AAPL", name: "Apple Inc.", sector: "Technology", marketCap: 3100 },
+  { ticker: "MSFT", name: "Microsoft Corp.", sector: "Technology", marketCap: 2900 },
+  { ticker: "GOOGL", name: "Alphabet Inc.", sector: "Technology", marketCap: 1950 },
+  { ticker: "AMZN", name: "Amazon.com Inc.", sector: "Technology", marketCap: 1850 },
+  { ticker: "NVDA", name: "NVIDIA Corp.", sector: "Technology", marketCap: 2700 },
+  { ticker: "META", name: "Meta Platforms", sector: "Technology", marketCap: 1400 },
+  { ticker: "TSLA", name: "Tesla Inc.", sector: "Technology", marketCap: 800 },
+  { ticker: "AVGO", name: "Broadcom Inc.", sector: "Technology", marketCap: 700 },
+  { ticker: "ORCL", name: "Oracle Corp.", sector: "Technology", marketCap: 380 },
+  { ticker: "CRM", name: "Salesforce Inc.", sector: "Technology", marketCap: 270 },
+  { ticker: "AMD", name: "AMD Inc.", sector: "Technology", marketCap: 250 },
+  { ticker: "INTC", name: "Intel Corp.", sector: "Technology", marketCap: 120 },
+  // Finance
+  { ticker: "JPM", name: "JPMorgan Chase", sector: "Finance", marketCap: 580 },
+  { ticker: "BAC", name: "Bank of America", sector: "Finance", marketCap: 330 },
+  { ticker: "GS", name: "Goldman Sachs", sector: "Finance", marketCap: 170 },
+  { ticker: "MS", name: "Morgan Stanley", sector: "Finance", marketCap: 160 },
+  { ticker: "WFC", name: "Wells Fargo", sector: "Finance", marketCap: 210 },
+  { ticker: "BLK", name: "BlackRock Inc.", sector: "Finance", marketCap: 140 },
+  { ticker: "C", name: "Citigroup Inc.", sector: "Finance", marketCap: 120 },
+  { ticker: "AXP", name: "American Express", sector: "Finance", marketCap: 175 },
+  // Healthcare
+  { ticker: "UNH", name: "UnitedHealth Grp", sector: "Healthcare", marketCap: 520 },
+  { ticker: "JNJ", name: "Johnson & Johnson", sector: "Healthcare", marketCap: 390 },
+  { ticker: "LLY", name: "Eli Lilly", sector: "Healthcare", marketCap: 720 },
+  { ticker: "PFE", name: "Pfizer Inc.", sector: "Healthcare", marketCap: 160 },
+  { ticker: "ABBV", name: "AbbVie Inc.", sector: "Healthcare", marketCap: 310 },
+  { ticker: "MRK", name: "Merck & Co.", sector: "Healthcare", marketCap: 280 },
+  { ticker: "TMO", name: "Thermo Fisher", sector: "Healthcare", marketCap: 210 },
+  // Energy
+  { ticker: "XOM", name: "Exxon Mobil", sector: "Energy", marketCap: 460 },
+  { ticker: "CVX", name: "Chevron Corp.", sector: "Energy", marketCap: 290 },
+  { ticker: "COP", name: "ConocoPhillips", sector: "Energy", marketCap: 130 },
+  { ticker: "SLB", name: "Schlumberger", sector: "Energy", marketCap: 75 },
+  { ticker: "EOG", name: "EOG Resources", sector: "Energy", marketCap: 70 },
+  // Consumer
+  { ticker: "WMT", name: "Walmart Inc.", sector: "Consumer", marketCap: 530 },
+  { ticker: "PG", name: "Procter & Gamble", sector: "Consumer", marketCap: 370 },
+  { ticker: "KO", name: "Coca-Cola Co.", sector: "Consumer", marketCap: 260 },
+  { ticker: "PEP", name: "PepsiCo Inc.", sector: "Consumer", marketCap: 230 },
+  { ticker: "COST", name: "Costco Wholesale", sector: "Consumer", marketCap: 350 },
+  { ticker: "MCD", name: "McDonald's Corp.", sector: "Consumer", marketCap: 210 },
+  { ticker: "NKE", name: "Nike Inc.", sector: "Consumer", marketCap: 120 },
+  // Industrial
+  { ticker: "CAT", name: "Caterpillar Inc.", sector: "Industrial", marketCap: 180 },
+  { ticker: "BA", name: "Boeing Co.", sector: "Industrial", marketCap: 130 },
+  { ticker: "HON", name: "Honeywell Intl", sector: "Industrial", marketCap: 145 },
+  { ticker: "UPS", name: "United Parcel", sector: "Industrial", marketCap: 110 },
+  { ticker: "GE", name: "GE Aerospace", sector: "Industrial", marketCap: 190 },
+  { ticker: "DE", name: "Deere & Company", sector: "Industrial", marketCap: 115 },
+];
+
+// ── Deterministic seeded random for reproducible correlations ─────────
+function mulberry32(a) {
+  return function() {
+    a |= 0; a = a + 0x6D2B79F5 | 0;
+    let t = Math.imul(a ^ a >>> 15, 1 | a);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+const rng = mulberry32(42);
+
+// ── Generate pairwise correlations ───────────────────────────────────
+// Stocks in the same sector get a boosted base correlation
+function generateCorrelations(stockList) {
+  const pairs = [];
+  for (let i = 0; i < stockList.length; i++) {
+    for (let j = i + 1; j < stockList.length; j++) {
+      const a = stockList[i], b = stockList[j];
+      const sameSector = a.sector === b.sector;
+      // base correlation: same sector ~0.5-0.9, diff sector ~0.05-0.6
+      const base = sameSector ? 0.45 + rng() * 0.48 : 0.02 + rng() * 0.55;
+      // slight noise
+      const corr = Math.min(0.98, Math.max(0.0, base + (rng() - 0.5) * 0.1));
+      pairs.push({ source: i, target: j, correlation: +corr.toFixed(3) });
+    }
+  }
+  return pairs;
+}
+
+const allEdges = generateCorrelations(stocks);
+
+// ── Sector color palette ─────────────────────────────────────────────
+const sectorColors = {
+  Technology: "#6c8cff",
+  Finance:    "#34d399",
+  Healthcare: "#f472b6",
+  Energy:     "#fbbf24",
+  Consumer:   "#a78bfa",
+  Industrial: "#fb923c",
+};
+
+// ── Community detection (simple label propagation) ───────────────────
+function detectCommunities(nodes, edges) {
+  const labels = nodes.map((_, i) => i);
+  for (let iter = 0; iter < 15; iter++) {
+    const order = nodes.map((_, i) => i);
+    // shuffle
+    for (let i = order.length - 1; i > 0; i--) {
+      const j = Math.floor(rng() * (i + 1));
+      [order[i], order[j]] = [order[j], order[i]];
+    }
+    let changed = false;
+    for (const i of order) {
+      const neighbors = edges
+        .filter(e => e.source === i || e.target === i || e.source.index === i || e.target.index === i)
+        .map(e => {
+          const si = typeof e.source === 'object' ? e.source.index : e.source;
+          const ti = typeof e.target === 'object' ? e.target.index : e.target;
+          return si === i ? ti : si;
+        });
+      if (neighbors.length === 0) continue;
+      const freq = {};
+      neighbors.forEach(n => {
+        const l = labels[n];
+        freq[l] = (freq[l] || 0) + 1;
+      });
+      const best = Object.entries(freq).sort((a, b) => b[1] - a[1])[0][0];
+      if (+best !== labels[i]) { labels[i] = +best; changed = true; }
+    }
+    if (!changed) break;
+  }
+  // remap labels to 0..k-1
+  const unique = [...new Set(labels)];
+  const map = {};
+  unique.forEach((l, i) => map[l] = i);
+  return labels.map(l => map[l]);
+}
+
+const communityPalette = [
+  "#6c8cff","#34d399","#f472b6","#fbbf24","#a78bfa",
+  "#fb923c","#38bdf8","#e879f9","#4ade80","#f87171",
+  "#22d3ee","#facc15",
+];
+
+// ── Sizing ───────────────────────────────────────────────────────────
+const capExtent = d3.extent(stocks, d => d.marketCap);
+const radiusScale = d3.scaleSqrt().domain(capExtent).range([10, 48]);
+
+function formatCap(b) {
+  if (b >= 1000) return `$${(b / 1000).toFixed(1)}T`;
+  return `$${b}B`;
+}
+
+// ── SVG setup ────────────────────────────────────────────────────────
+const width = window.innerWidth;
+const height = window.innerHeight;
+
+const svg = d3.select("#graph-container")
+  .append("svg")
+  .attr("width", width)
+  .attr("height", height);
+
+// Glow filter
+const defs = svg.append("defs");
+const filter = defs.append("filter").attr("id", "glow");
+filter.append("feGaussianBlur").attr("stdDeviation", "3").attr("result", "coloredBlur");
+const merge = filter.append("feMerge");
+merge.append("feMergeNode").attr("in", "coloredBlur");
+merge.append("feMergeNode").attr("in", "SourceGraphic");
+
+const g = svg.append("g");
+
+// Zoom
+const zoom = d3.zoom()
+  .scaleExtent([0.2, 5])
+  .on("zoom", (event) => g.attr("transform", event.transform));
+svg.call(zoom);
+
+// Tooltip ref
+const tooltip = d3.select("#tooltip");
+
+// ── Rendering function ───────────────────────────────────────────────
+let simulation;
+
+function render(threshold, clusterMode) {
+  // Filter edges
+  const edges = allEdges.filter(e => e.correlation >= threshold)
+    .map(e => ({ source: e.source, target: e.target, correlation: e.correlation }));
+
+  // Nodes
+  const nodes = stocks.map((s, i) => ({
+    ...s,
+    index: i,
+    radius: radiusScale(s.marketCap),
+  }));
+
+  // Community detection on current edge set
+  const communities = detectCommunities(nodes, edges);
+  nodes.forEach((n, i) => n.community = communities[i]);
+
+  // Color accessor
+  const color = (d) => {
+    if (clusterMode === "sector") return sectorColors[d.sector];
+    return communityPalette[d.community % communityPalette.length];
+  };
+
+  // Count connections per node
+  const connCount = new Array(nodes.length).fill(0);
+  const corrSum = new Array(nodes.length).fill(0);
+  edges.forEach(e => {
+    const si = typeof e.source === 'object' ? e.source.index : e.source;
+    const ti = typeof e.target === 'object' ? e.target.index : e.target;
+    connCount[si]++;
+    connCount[ti]++;
+    corrSum[si] += e.correlation;
+    corrSum[ti] += e.correlation;
+  });
+
+  // ── Draw ──
+  g.selectAll("*").remove();
+
+  // Edges
+  const linkSel = g.append("g")
+    .selectAll("line")
+    .data(edges)
+    .join("line")
+    .attr("class", "link")
+    .attr("stroke", "#1e2a45")
+    .attr("stroke-width", d => 0.5 + d.correlation * 2)
+    .attr("stroke-opacity", d => 0.08 + d.correlation * 0.25);
+
+  // Node groups
+  const nodeSel = g.append("g")
+    .selectAll("g")
+    .data(nodes)
+    .join("g")
+    .attr("class", "node");
+
+  // Circles
+  nodeSel.append("circle")
+    .attr("class", "node-circle")
+    .attr("r", d => d.radius)
+    .attr("fill", d => color(d))
+    .attr("fill-opacity", 0.8)
+    .attr("stroke", d => d3.color(color(d)).brighter(0.6))
+    .attr("stroke-width", 1.5)
+    .attr("filter", "url(#glow)");
+
+  // Labels inside large nodes
+  nodeSel.append("text")
+    .attr("class", "node-label")
+    .attr("font-size", d => {
+      if (d.radius > 30) return 11;
+      if (d.radius > 20) return 9;
+      return 0; // hidden for small nodes
+    })
+    .attr("opacity", d => d.radius > 18 ? 1 : 0)
+    .text(d => d.ticker);
+
+  // ── Interaction ──
+  nodeSel
+    .on("mouseover", function(event, d) {
+      d3.select(this).select("circle")
+        .transition().duration(150)
+        .attr("fill-opacity", 1)
+        .attr("stroke-width", 3);
+
+      // Highlight connected edges
+      linkSel
+        .attr("stroke", e => {
+          const si = typeof e.source === 'object' ? e.source.index : e.source;
+          const ti = typeof e.target === 'object' ? e.target.index : e.target;
+          return (si === d.index || ti === d.index) ? color(d) : "#1e2a45";
+        })
+        .attr("stroke-opacity", e => {
+          const si = typeof e.source === 'object' ? e.source.index : e.source;
+          const ti = typeof e.target === 'object' ? e.target.index : e.target;
+          return (si === d.index || ti === d.index) ? 0.7 : 0.06;
+        });
+
+      // Dim non-connected nodes
+      const connected = new Set();
+      edges.forEach(e => {
+        const si = typeof e.source === 'object' ? e.source.index : e.source;
+        const ti = typeof e.target === 'object' ? e.target.index : e.target;
+        if (si === d.index) connected.add(ti);
+        if (ti === d.index) connected.add(si);
+      });
+      connected.add(d.index);
+
+      nodeSel.select("circle")
+        .attr("fill-opacity", n => connected.has(n.index) ? 0.9 : 0.15);
+      nodeSel.select("text")
+        .attr("opacity", n => {
+          if (n.radius <= 18 && !connected.has(n.index)) return 0;
+          if (n.radius <= 18 && connected.has(n.index)) return 0;
+          return connected.has(n.index) ? 1 : 0.15;
+        });
+
+      // Tooltip
+      const avgCorr = connCount[d.index] > 0
+        ? (corrSum[d.index] / connCount[d.index]).toFixed(3)
+        : "N/A";
+      tooltip.select(".tt-ticker").text(d.ticker).style("color", color(d));
+      tooltip.select(".tt-name").text(d.name);
+      tooltip.select(".tt-sector").text(d.sector);
+      tooltip.select(".tt-mcap").text(formatCap(d.marketCap));
+      tooltip.select(".tt-conn").text(connCount[d.index]);
+      tooltip.select(".tt-corr").text(avgCorr);
+      tooltip.style("display", "block");
+    })
+    .on("mousemove", function(event) {
+      const pad = 16;
+      let x = event.clientX + pad;
+      let y = event.clientY + pad;
+      if (x + 200 > width) x = event.clientX - 200 - pad;
+      if (y + 180 > height) y = event.clientY - 180 - pad;
+      tooltip.style("left", x + "px").style("top", y + "px");
+    })
+    .on("mouseout", function() {
+      d3.select(this).select("circle")
+        .transition().duration(300)
+        .attr("fill-opacity", 0.8)
+        .attr("stroke-width", 1.5);
+
+      linkSel
+        .attr("stroke", "#1e2a45")
+        .attr("stroke-opacity", d => 0.08 + d.correlation * 0.25);
+
+      nodeSel.select("circle").attr("fill-opacity", 0.8);
+      nodeSel.select("text").attr("opacity", d => d.radius > 18 ? 1 : 0);
+
+      tooltip.style("display", "none");
+    });
+
+  // Drag
+  const drag = d3.drag()
+    .on("start", (event, d) => {
+      if (!event.active) simulation.alphaTarget(0.3).restart();
+      d.fx = d.x; d.fy = d.y;
+    })
+    .on("drag", (event, d) => {
+      d.fx = event.x; d.fy = event.y;
+    })
+    .on("end", (event, d) => {
+      if (!event.active) simulation.alphaTarget(0);
+      d.fx = null; d.fy = null;
+    });
+  nodeSel.call(drag);
+
+  // ── Force simulation ──
+  if (simulation) simulation.stop();
+
+  simulation = d3.forceSimulation(nodes)
+    .force("link", d3.forceLink(edges)
+      .id(d => d.index)
+      .distance(d => 120 - d.correlation * 70)
+      .strength(d => 0.2 + d.correlation * 0.5))
+    .force("charge", d3.forceManyBody().strength(-250))
+    .force("center", d3.forceCenter(width / 2, height / 2))
+    .force("collision", d3.forceCollide().radius(d => d.radius + 4))
+    .force("x", d3.forceX(width / 2).strength(0.04))
+    .force("y", d3.forceY(height / 2).strength(0.04))
+    .on("tick", () => {
+      linkSel
+        .attr("x1", d => d.source.x)
+        .attr("y1", d => d.source.y)
+        .attr("x2", d => d.target.x)
+        .attr("y2", d => d.target.y);
+      nodeSel.attr("transform", d => `translate(${d.x},${d.y})`);
+    });
+
+  // ── Legend ──
+  const legendDiv = d3.select("#legend");
+  legendDiv.html("");
+  if (clusterMode === "sector") {
+    legendDiv.append("h3").text("Sectors");
+    Object.entries(sectorColors).forEach(([sector, col]) => {
+      const item = legendDiv.append("div").attr("class", "legend-item");
+      item.append("div").attr("class", "legend-dot").style("background", col);
+      item.append("span").text(sector);
+    });
+  } else {
+    legendDiv.append("h3").text("Communities (auto-detected)");
+    const numComm = new Set(communities).size;
+    for (let i = 0; i < numComm; i++) {
+      const item = legendDiv.append("div").attr("class", "legend-item");
+      item.append("div").attr("class", "legend-dot")
+        .style("background", communityPalette[i % communityPalette.length]);
+      item.append("span").text(`Cluster ${i + 1}`);
+    }
+  }
+  legendDiv.append("div").style("margin-top", "10px").style("font-size", "10px").style("color", "#556677")
+    .html("Node size = market cap");
+}
+
+// ── Initial render ───────────────────────────────────────────────────
+let currentThreshold = 0.6;
+let currentCluster = "sector";
+render(currentThreshold, currentCluster);
+
+// ── Controls ─────────────────────────────────────────────────────────
+d3.select("#threshold-slider").on("input", function() {
+  currentThreshold = +this.value;
+  d3.select("#threshold-value").text(currentThreshold.toFixed(2));
+  render(currentThreshold, currentCluster);
+});
+
+d3.select("#cluster-method").on("change", function() {
+  currentCluster = this.value;
+  render(currentThreshold, currentCluster);
+});
+
+// Resize
+window.addEventListener("resize", () => {
+  svg.attr("width", window.innerWidth).attr("height", window.innerHeight);
+  render(currentThreshold, currentCluster);
+});
+</script>
+
+</body>
+</html>
