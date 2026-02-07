@@ -567,9 +567,39 @@ feMerge.append("feMergeNode").attr("in", "SourceGraphic");
 
 const g = svg.append("g");
 
+let currentZoomK = 1;
+let currentNodeSel = null;
+const LABEL_APPARENT_THRESHOLD = 18; // apparent radius in px at which labels appear
+const HIGHLIGHT_TICKER = "PGR";
+
+function updateLabelsForZoom(k) {
+  if (!currentNodeSel) return;
+  currentNodeSel.select("text")
+    .transition().duration(120)
+    .attr("opacity", d => {
+      if (d.ticker === HIGHLIGHT_TICKER) return 1;
+      const apparent = d.radius * k;
+      if (apparent > LABEL_APPARENT_THRESHOLD) return 1;
+      return 0;
+    })
+    .attr("font-size", d => {
+      if (d.ticker === HIGHLIGHT_TICKER) return Math.max(9, d.radius > 30 ? 11 : 9);
+      const apparent = d.radius * k;
+      if (apparent > 30) return 11;
+      if (apparent > LABEL_APPARENT_THRESHOLD) return 9;
+      return 0;
+    });
+}
+
 const zoom = d3.zoom()
   .scaleExtent([0.2, 5])
-  .on("zoom", (event) => g.attr("transform", event.transform));
+  .on("zoom", (event) => {
+    g.attr("transform", event.transform);
+    if (Math.abs(event.transform.k - currentZoomK) > 0.05) {
+      currentZoomK = event.transform.k;
+      updateLabelsForZoom(currentZoomK);
+    }
+  });
 svg.call(zoom);
 
 const tooltip = d3.select("#tooltip");
@@ -645,8 +675,10 @@ function render(threshold, numClusters) {
     .attr("stroke-width", 1.5)
     .attr("filter", "url(#glow)");
 
+  // Store ref for zoom-based label updates
+  currentNodeSel = nodeSel;
+
   // Highlight ring + pulse for PGR
-  const HIGHLIGHT_TICKER = "PGR";
   nodeSel.filter(d => d.ticker === HIGHLIGHT_TICKER)
     .append("circle")
     .attr("class", "highlight-pulse")
@@ -658,16 +690,21 @@ function render(threshold, numClusters) {
     .attr("class", "highlight-ring")
     .attr("r", d => d.radius + 4);
 
-  // Labels inside large nodes (PGR always visible)
+  // Labels inside nodes (visibility depends on apparent size at current zoom)
+  const k = currentZoomK;
   nodeSel.append("text")
     .attr("class", "node-label")
     .attr("font-size", d => {
       if (d.ticker === HIGHLIGHT_TICKER) return Math.max(9, d.radius > 30 ? 11 : 9);
-      if (d.radius > 30) return 11;
-      if (d.radius > 20) return 9;
+      const apparent = d.radius * k;
+      if (apparent > 30) return 11;
+      if (apparent > LABEL_APPARENT_THRESHOLD) return 9;
       return 0;
     })
-    .attr("opacity", d => (d.ticker === HIGHLIGHT_TICKER || d.radius > 18) ? 1 : 0)
+    .attr("opacity", d => {
+      if (d.ticker === HIGHLIGHT_TICKER) return 1;
+      return (d.radius * k) > LABEL_APPARENT_THRESHOLD ? 1 : 0;
+    })
     .text(d => d.ticker);
 
   // ── Interaction ──
@@ -706,7 +743,8 @@ function render(threshold, numClusters) {
       nodeSel.select("text")
         .attr("opacity", n => {
           if (n.ticker === HIGHLIGHT_TICKER) return connected.has(n.index) ? 1 : 0.6;
-          if (n.radius <= 18) return 0;
+          const apparent = n.radius * currentZoomK;
+          if (apparent <= LABEL_APPARENT_THRESHOLD) return 0;
           return connected.has(n.index) ? 1 : 0.12;
         });
 
@@ -740,8 +778,11 @@ function render(threshold, numClusters) {
         .attr("stroke", "#1e2a45")
         .attr("stroke-opacity", d => 0.06 + d.correlation * 0.28);
 
-      nodeSel.select("circle").attr("fill-opacity", 0.8);
-      nodeSel.select("text").attr("opacity", d => d.radius > 18 ? 1 : 0);
+      nodeSel.select(".node-circle").attr("fill-opacity", 0.8);
+      nodeSel.select("text").attr("opacity", d => {
+        if (d.ticker === HIGHLIGHT_TICKER) return 1;
+        return (d.radius * currentZoomK) > LABEL_APPARENT_THRESHOLD ? 1 : 0;
+      });
 
       tooltip.style("display", "none");
     });
