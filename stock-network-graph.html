@@ -40,26 +40,30 @@
 
   #controls {
     display: flex;
-    gap: 12px;
+    gap: 16px;
     align-items: center;
   }
-  #controls label {
+  .control-group {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .control-group label {
     font-size: 12px;
     color: #8899aa;
+    white-space: nowrap;
   }
   #controls input[type=range] {
     width: 110px;
     accent-color: #6c8cff;
     cursor: pointer;
   }
-  #controls select {
-    background: #151b2b;
-    color: #c8d6e5;
-    border: 1px solid #2a3550;
-    border-radius: 6px;
-    padding: 5px 10px;
+  .control-value {
     font-size: 12px;
-    cursor: pointer;
+    color: #6c8cff;
+    min-width: 28px;
+    text-align: center;
+    font-weight: 600;
   }
 
   #graph-container {
@@ -67,9 +71,7 @@
     height: 100vh;
   }
 
-  .link {
-    stroke-linecap: round;
-  }
+  .link { stroke-linecap: round; }
 
   .node-circle {
     cursor: pointer;
@@ -100,7 +102,7 @@
     z-index: 100;
     backdrop-filter: blur(8px);
     box-shadow: 0 8px 32px rgba(0,0,0,0.45);
-    min-width: 180px;
+    min-width: 195px;
   }
   #tooltip .tt-ticker {
     font-size: 16px;
@@ -132,6 +134,8 @@
     font-size: 12px;
     z-index: 10;
     backdrop-filter: blur(6px);
+    max-height: 60vh;
+    overflow-y: auto;
   }
   #legend h3 {
     font-size: 11px;
@@ -150,6 +154,13 @@
     width: 10px;
     height: 10px;
     border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .legend-members {
+    font-size: 10px;
+    color: #667788;
+    margin-left: 18px;
+    margin-bottom: 4px;
   }
 
   #info-hint {
@@ -159,6 +170,8 @@
     font-size: 11px;
     color: #556677;
     z-index: 10;
+    text-align: right;
+    line-height: 1.6;
   }
 </style>
 </head>
@@ -167,16 +180,16 @@
 <div id="header">
   <h1><span>&#9670;</span> Stock Correlation Network</h1>
   <div id="controls">
-    <label>Correlation threshold
-      <input type="range" id="threshold-slider" min="0.3" max="0.95" step="0.05" value="0.6">
-      <span id="threshold-value">0.60</span>
-    </label>
-    <label>Clustering
-      <select id="cluster-method">
-        <option value="sector">By Sector</option>
-        <option value="community">By Community</option>
-      </select>
-    </label>
+    <div class="control-group">
+      <label>Correlation threshold</label>
+      <input type="range" id="threshold-slider" min="0.15" max="0.95" step="0.05" value="0.55">
+      <span class="control-value" id="threshold-value">0.55</span>
+    </div>
+    <div class="control-group">
+      <label>Clusters</label>
+      <input type="range" id="cluster-slider" min="2" max="12" step="1" value="6">
+      <span class="control-value" id="cluster-value">6</span>
+    </div>
   </div>
 </div>
 
@@ -187,70 +200,76 @@
   <div class="tt-name"></div>
   <div class="tt-row"><span class="tt-label">Sector</span><span class="tt-value tt-sector"></span></div>
   <div class="tt-row"><span class="tt-label">Market Cap</span><span class="tt-value tt-mcap"></span></div>
+  <div class="tt-row"><span class="tt-label">Cluster</span><span class="tt-value tt-cluster"></span></div>
   <div class="tt-row"><span class="tt-label">Connections</span><span class="tt-value tt-conn"></span></div>
   <div class="tt-row"><span class="tt-label">Avg Correlation</span><span class="tt-value tt-corr"></span></div>
 </div>
 
 <div id="legend"></div>
-<div id="info-hint">Scroll to zoom &middot; Drag nodes &middot; Hover for details</div>
+<div id="info-hint">
+  Scroll to zoom &middot; Drag nodes &middot; Hover for details<br>
+  Clusters detected from return correlation, not sector labels
+</div>
 
 <script>
-// ── Stock universe with realistic attributes ──────────────────────────
+// ── Stock universe ───────────────────────────────────────────────────
 const stocks = [
   // Technology
-  { ticker: "AAPL", name: "Apple Inc.", sector: "Technology", marketCap: 3100 },
-  { ticker: "MSFT", name: "Microsoft Corp.", sector: "Technology", marketCap: 2900 },
-  { ticker: "GOOGL", name: "Alphabet Inc.", sector: "Technology", marketCap: 1950 },
-  { ticker: "AMZN", name: "Amazon.com Inc.", sector: "Technology", marketCap: 1850 },
-  { ticker: "NVDA", name: "NVIDIA Corp.", sector: "Technology", marketCap: 2700 },
-  { ticker: "META", name: "Meta Platforms", sector: "Technology", marketCap: 1400 },
-  { ticker: "TSLA", name: "Tesla Inc.", sector: "Technology", marketCap: 800 },
-  { ticker: "AVGO", name: "Broadcom Inc.", sector: "Technology", marketCap: 700 },
-  { ticker: "ORCL", name: "Oracle Corp.", sector: "Technology", marketCap: 380 },
-  { ticker: "CRM", name: "Salesforce Inc.", sector: "Technology", marketCap: 270 },
-  { ticker: "AMD", name: "AMD Inc.", sector: "Technology", marketCap: 250 },
-  { ticker: "INTC", name: "Intel Corp.", sector: "Technology", marketCap: 120 },
+  { ticker: "AAPL",  name: "Apple Inc.",          sector: "Technology",  marketCap: 3100 },
+  { ticker: "MSFT",  name: "Microsoft Corp.",     sector: "Technology",  marketCap: 2900 },
+  { ticker: "GOOGL", name: "Alphabet Inc.",       sector: "Technology",  marketCap: 1950 },
+  { ticker: "AMZN",  name: "Amazon.com Inc.",     sector: "Technology",  marketCap: 1850 },
+  { ticker: "NVDA",  name: "NVIDIA Corp.",        sector: "Technology",  marketCap: 2700 },
+  { ticker: "META",  name: "Meta Platforms",      sector: "Technology",  marketCap: 1400 },
+  { ticker: "TSLA",  name: "Tesla Inc.",          sector: "Technology",  marketCap: 800  },
+  { ticker: "AVGO",  name: "Broadcom Inc.",       sector: "Technology",  marketCap: 700  },
+  { ticker: "ORCL",  name: "Oracle Corp.",        sector: "Technology",  marketCap: 380  },
+  { ticker: "CRM",   name: "Salesforce Inc.",     sector: "Technology",  marketCap: 270  },
+  { ticker: "AMD",   name: "AMD Inc.",            sector: "Technology",  marketCap: 250  },
+  { ticker: "INTC",  name: "Intel Corp.",         sector: "Technology",  marketCap: 120  },
   // Finance
-  { ticker: "JPM", name: "JPMorgan Chase", sector: "Finance", marketCap: 580 },
-  { ticker: "BAC", name: "Bank of America", sector: "Finance", marketCap: 330 },
-  { ticker: "GS", name: "Goldman Sachs", sector: "Finance", marketCap: 170 },
-  { ticker: "MS", name: "Morgan Stanley", sector: "Finance", marketCap: 160 },
-  { ticker: "WFC", name: "Wells Fargo", sector: "Finance", marketCap: 210 },
-  { ticker: "BLK", name: "BlackRock Inc.", sector: "Finance", marketCap: 140 },
-  { ticker: "C", name: "Citigroup Inc.", sector: "Finance", marketCap: 120 },
-  { ticker: "AXP", name: "American Express", sector: "Finance", marketCap: 175 },
+  { ticker: "JPM",   name: "JPMorgan Chase",      sector: "Finance",    marketCap: 580  },
+  { ticker: "BAC",   name: "Bank of America",     sector: "Finance",    marketCap: 330  },
+  { ticker: "GS",    name: "Goldman Sachs",       sector: "Finance",    marketCap: 170  },
+  { ticker: "MS",    name: "Morgan Stanley",      sector: "Finance",    marketCap: 160  },
+  { ticker: "WFC",   name: "Wells Fargo",         sector: "Finance",    marketCap: 210  },
+  { ticker: "BLK",   name: "BlackRock Inc.",      sector: "Finance",    marketCap: 140  },
+  { ticker: "C",     name: "Citigroup Inc.",      sector: "Finance",    marketCap: 120  },
+  { ticker: "AXP",   name: "American Express",    sector: "Finance",    marketCap: 175  },
   // Healthcare
-  { ticker: "UNH", name: "UnitedHealth Grp", sector: "Healthcare", marketCap: 520 },
-  { ticker: "JNJ", name: "Johnson & Johnson", sector: "Healthcare", marketCap: 390 },
-  { ticker: "LLY", name: "Eli Lilly", sector: "Healthcare", marketCap: 720 },
-  { ticker: "PFE", name: "Pfizer Inc.", sector: "Healthcare", marketCap: 160 },
-  { ticker: "ABBV", name: "AbbVie Inc.", sector: "Healthcare", marketCap: 310 },
-  { ticker: "MRK", name: "Merck & Co.", sector: "Healthcare", marketCap: 280 },
-  { ticker: "TMO", name: "Thermo Fisher", sector: "Healthcare", marketCap: 210 },
+  { ticker: "UNH",   name: "UnitedHealth Grp",    sector: "Healthcare", marketCap: 520  },
+  { ticker: "JNJ",   name: "Johnson & Johnson",   sector: "Healthcare", marketCap: 390  },
+  { ticker: "LLY",   name: "Eli Lilly",           sector: "Healthcare", marketCap: 720  },
+  { ticker: "PFE",   name: "Pfizer Inc.",         sector: "Healthcare", marketCap: 160  },
+  { ticker: "ABBV",  name: "AbbVie Inc.",         sector: "Healthcare", marketCap: 310  },
+  { ticker: "MRK",   name: "Merck & Co.",         sector: "Healthcare", marketCap: 280  },
+  { ticker: "TMO",   name: "Thermo Fisher",       sector: "Healthcare", marketCap: 210  },
   // Energy
-  { ticker: "XOM", name: "Exxon Mobil", sector: "Energy", marketCap: 460 },
-  { ticker: "CVX", name: "Chevron Corp.", sector: "Energy", marketCap: 290 },
-  { ticker: "COP", name: "ConocoPhillips", sector: "Energy", marketCap: 130 },
-  { ticker: "SLB", name: "Schlumberger", sector: "Energy", marketCap: 75 },
-  { ticker: "EOG", name: "EOG Resources", sector: "Energy", marketCap: 70 },
+  { ticker: "XOM",   name: "Exxon Mobil",         sector: "Energy",     marketCap: 460  },
+  { ticker: "CVX",   name: "Chevron Corp.",       sector: "Energy",     marketCap: 290  },
+  { ticker: "COP",   name: "ConocoPhillips",      sector: "Energy",     marketCap: 130  },
+  { ticker: "SLB",   name: "Schlumberger",        sector: "Energy",     marketCap: 75   },
+  { ticker: "EOG",   name: "EOG Resources",       sector: "Energy",     marketCap: 70   },
   // Consumer
-  { ticker: "WMT", name: "Walmart Inc.", sector: "Consumer", marketCap: 530 },
-  { ticker: "PG", name: "Procter & Gamble", sector: "Consumer", marketCap: 370 },
-  { ticker: "KO", name: "Coca-Cola Co.", sector: "Consumer", marketCap: 260 },
-  { ticker: "PEP", name: "PepsiCo Inc.", sector: "Consumer", marketCap: 230 },
-  { ticker: "COST", name: "Costco Wholesale", sector: "Consumer", marketCap: 350 },
-  { ticker: "MCD", name: "McDonald's Corp.", sector: "Consumer", marketCap: 210 },
-  { ticker: "NKE", name: "Nike Inc.", sector: "Consumer", marketCap: 120 },
+  { ticker: "WMT",   name: "Walmart Inc.",        sector: "Consumer",   marketCap: 530  },
+  { ticker: "PG",    name: "Procter & Gamble",    sector: "Consumer",   marketCap: 370  },
+  { ticker: "KO",    name: "Coca-Cola Co.",       sector: "Consumer",   marketCap: 260  },
+  { ticker: "PEP",   name: "PepsiCo Inc.",        sector: "Consumer",   marketCap: 230  },
+  { ticker: "COST",  name: "Costco Wholesale",    sector: "Consumer",   marketCap: 350  },
+  { ticker: "MCD",   name: "McDonald's Corp.",    sector: "Consumer",   marketCap: 210  },
+  { ticker: "NKE",   name: "Nike Inc.",           sector: "Consumer",   marketCap: 120  },
   // Industrial
-  { ticker: "CAT", name: "Caterpillar Inc.", sector: "Industrial", marketCap: 180 },
-  { ticker: "BA", name: "Boeing Co.", sector: "Industrial", marketCap: 130 },
-  { ticker: "HON", name: "Honeywell Intl", sector: "Industrial", marketCap: 145 },
-  { ticker: "UPS", name: "United Parcel", sector: "Industrial", marketCap: 110 },
-  { ticker: "GE", name: "GE Aerospace", sector: "Industrial", marketCap: 190 },
-  { ticker: "DE", name: "Deere & Company", sector: "Industrial", marketCap: 115 },
+  { ticker: "CAT",   name: "Caterpillar Inc.",    sector: "Industrial", marketCap: 180  },
+  { ticker: "BA",    name: "Boeing Co.",          sector: "Industrial", marketCap: 130  },
+  { ticker: "HON",   name: "Honeywell Intl",      sector: "Industrial", marketCap: 145  },
+  { ticker: "UPS",   name: "United Parcel",       sector: "Industrial", marketCap: 110  },
+  { ticker: "GE",    name: "GE Aerospace",        sector: "Industrial", marketCap: 190  },
+  { ticker: "DE",    name: "Deere & Company",     sector: "Industrial", marketCap: 115  },
 ];
 
-// ── Deterministic seeded random for reproducible correlations ─────────
+const N = stocks.length;
+
+// ── Seeded PRNG ──────────────────────────────────────────────────────
 function mulberry32(a) {
   return function() {
     a |= 0; a = a + 0x6D2B79F5 | 0;
@@ -259,79 +278,248 @@ function mulberry32(a) {
     return ((t ^ t >>> 14) >>> 0) / 4294967296;
   };
 }
-const rng = mulberry32(42);
+const rng = mulberry32(77);
 
-// ── Generate pairwise correlations ───────────────────────────────────
-// Stocks in the same sector get a boosted base correlation
-function generateCorrelations(stockList) {
-  const pairs = [];
-  for (let i = 0; i < stockList.length; i++) {
-    for (let j = i + 1; j < stockList.length; j++) {
-      const a = stockList[i], b = stockList[j];
-      const sameSector = a.sector === b.sector;
-      // base correlation: same sector ~0.5-0.9, diff sector ~0.05-0.6
-      const base = sameSector ? 0.45 + rng() * 0.48 : 0.02 + rng() * 0.55;
-      // slight noise
-      const corr = Math.min(0.98, Math.max(0.0, base + (rng() - 0.5) * 0.1));
-      pairs.push({ source: i, target: j, correlation: +corr.toFixed(3) });
-    }
-  }
-  return pairs;
+// Box-Muller for normal distribution
+function randNormal() {
+  let u, v;
+  do { u = rng(); } while (u === 0);
+  v = rng();
+  return Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
 }
 
-const allEdges = generateCorrelations(stocks);
+// ── Simulate daily returns via latent factor model ───────────────────
+// Each stock's return = sum of (factor_loading * factor_return) + idiosyncratic noise
+// Factors are abstract — they are NOT sectors. Stocks load on them organically;
+// the resulting correlations may or may not align with sector labels.
+const NUM_DAYS = 252;    // ~1 year of trading days
+const NUM_FACTORS = 8;   // hidden latent factors
 
-// ── Sector color palette ─────────────────────────────────────────────
-const sectorColors = {
-  Technology: "#6c8cff",
-  Finance:    "#34d399",
-  Healthcare: "#f472b6",
-  Energy:     "#fbbf24",
-  Consumer:   "#a78bfa",
-  Industrial: "#fb923c",
-};
+// Generate random factor loadings per stock (each stock loads on each factor)
+const factorLoadings = [];  // [stock][factor]
+for (let i = 0; i < N; i++) {
+  const loadings = [];
+  for (let f = 0; f < NUM_FACTORS; f++) {
+    // Each stock gets a sparse-ish loading: ~40% chance of meaningful exposure
+    loadings.push(rng() < 0.4 ? randNormal() * 0.6 : randNormal() * 0.05);
+  }
+  // Every stock has some market beta (factor 0)
+  loadings[0] = 0.3 + Math.abs(randNormal()) * 0.4;
+  factorLoadings.push(loadings);
+}
 
-// ── Community detection (simple label propagation) ───────────────────
-function detectCommunities(nodes, edges) {
-  const labels = nodes.map((_, i) => i);
-  for (let iter = 0; iter < 15; iter++) {
-    const order = nodes.map((_, i) => i);
-    // shuffle
-    for (let i = order.length - 1; i > 0; i--) {
-      const j = Math.floor(rng() * (i + 1));
-      [order[i], order[j]] = [order[j], order[i]];
+// Generate daily factor returns
+const factorReturns = [];  // [day][factor]
+for (let d = 0; d < NUM_DAYS; d++) {
+  const dayFactors = [];
+  for (let f = 0; f < NUM_FACTORS; f++) {
+    dayFactors.push(randNormal() * 0.015);  // ~1.5% daily factor vol
+  }
+  factorReturns.push(dayFactors);
+}
+
+// Generate daily stock returns
+const dailyReturns = [];  // [stock][day]
+for (let i = 0; i < N; i++) {
+  const returns = [];
+  for (let d = 0; d < NUM_DAYS; d++) {
+    let r = 0;
+    for (let f = 0; f < NUM_FACTORS; f++) {
+      r += factorLoadings[i][f] * factorReturns[d][f];
     }
-    let changed = false;
-    for (const i of order) {
-      const neighbors = edges
-        .filter(e => e.source === i || e.target === i || e.source.index === i || e.target.index === i)
-        .map(e => {
-          const si = typeof e.source === 'object' ? e.source.index : e.source;
-          const ti = typeof e.target === 'object' ? e.target.index : e.target;
-          return si === i ? ti : si;
-        });
-      if (neighbors.length === 0) continue;
-      const freq = {};
-      neighbors.forEach(n => {
-        const l = labels[n];
-        freq[l] = (freq[l] || 0) + 1;
+    r += randNormal() * 0.012;  // idiosyncratic noise
+    returns.push(r);
+  }
+  dailyReturns.push(returns);
+}
+
+// ── Compute Pearson correlation matrix ───────────────────────────────
+function mean(arr) { return arr.reduce((s, v) => s + v, 0) / arr.length; }
+
+function pearson(a, b) {
+  const ma = mean(a), mb = mean(b);
+  let num = 0, da = 0, db = 0;
+  for (let i = 0; i < a.length; i++) {
+    const x = a[i] - ma, y = b[i] - mb;
+    num += x * y;
+    da += x * x;
+    db += y * y;
+  }
+  const denom = Math.sqrt(da) * Math.sqrt(db);
+  return denom === 0 ? 0 : num / denom;
+}
+
+// Full correlation matrix
+const corrMatrix = [];
+for (let i = 0; i < N; i++) {
+  corrMatrix[i] = new Float64Array(N);
+  corrMatrix[i][i] = 1.0;
+}
+const allEdges = [];
+for (let i = 0; i < N; i++) {
+  for (let j = i + 1; j < N; j++) {
+    const c = pearson(dailyReturns[i], dailyReturns[j]);
+    corrMatrix[i][j] = c;
+    corrMatrix[j][i] = c;
+    allEdges.push({ source: i, target: j, correlation: +c.toFixed(4) });
+  }
+}
+
+// ── Spectral clustering on the correlation matrix ────────────────────
+// 1. Build affinity matrix from correlations (shift to non-negative)
+// 2. Compute graph Laplacian
+// 3. Use power iteration to approximate top-k eigenvectors
+// 4. K-means on the embedding
+
+function spectralCluster(corrMat, n, k) {
+  // Affinity: shift correlations so all >= 0, zero out diagonal
+  const W = [];
+  for (let i = 0; i < n; i++) {
+    W[i] = new Float64Array(n);
+    for (let j = 0; j < n; j++) {
+      if (i !== j) {
+        // Use (1 + corr) / 2 to map [-1,1] -> [0,1]
+        W[i][j] = Math.max(0, (1 + corrMat[i][j]) / 2);
+      }
+    }
+  }
+
+  // Degree matrix D and normalized Laplacian: L_sym = I - D^{-1/2} W D^{-1/2}
+  const deg = new Float64Array(n);
+  for (let i = 0; i < n; i++) {
+    for (let j = 0; j < n; j++) deg[i] += W[i][j];
+  }
+  const dinvSqrt = new Float64Array(n);
+  for (let i = 0; i < n; i++) dinvSqrt[i] = deg[i] > 0 ? 1.0 / Math.sqrt(deg[i]) : 0;
+
+  // We want the smallest eigenvectors of L, which equals the largest of (I - L) = D^{-1/2} W D^{-1/2}
+  // Compute M = D^{-1/2} W D^{-1/2} and find top-k eigenvectors via power iteration with deflation
+  function matVecM(v) {
+    const result = new Float64Array(n);
+    for (let i = 0; i < n; i++) {
+      let sum = 0;
+      for (let j = 0; j < n; j++) {
+        sum += dinvSqrt[i] * W[i][j] * dinvSqrt[j] * v[j];
+      }
+      result[i] = sum;
+    }
+    return result;
+  }
+
+  function normalize(v) {
+    let norm = 0;
+    for (let i = 0; i < n; i++) norm += v[i] * v[i];
+    norm = Math.sqrt(norm);
+    if (norm > 0) for (let i = 0; i < n; i++) v[i] /= norm;
+    return norm;
+  }
+
+  function dot(a, b) {
+    let s = 0;
+    for (let i = 0; i < n; i++) s += a[i] * b[i];
+    return s;
+  }
+
+  // Power iteration with deflation to get top-k eigenvectors
+  const eigenvecs = [];
+  const eigenvals = [];
+  for (let ev = 0; ev < k; ev++) {
+    let v = new Float64Array(n);
+    for (let i = 0; i < n; i++) v[i] = randNormal();
+    normalize(v);
+
+    for (let iter = 0; iter < 100; iter++) {
+      let mv = matVecM(v);
+      // Deflate: remove projections onto previously found eigenvectors
+      for (let p = 0; p < eigenvecs.length; p++) {
+        const proj = dot(mv, eigenvecs[p]);
+        for (let i = 0; i < n; i++) mv[i] -= proj * eigenvecs[p][i];
+      }
+      const lambda = normalize(mv);
+      // Check convergence
+      let diff = 0;
+      for (let i = 0; i < n; i++) diff += (mv[i] - v[i]) * (mv[i] - v[i]);
+      v = mv;
+      if (Math.sqrt(diff) < 1e-8) break;
+    }
+    eigenvecs.push(v);
+    eigenvals.push(dot(matVecM(v), v));
+  }
+
+  // Build embedding: each row is a point in k-dimensional space
+  // Normalize rows to unit length (for better k-means)
+  const embedding = [];
+  for (let i = 0; i < n; i++) {
+    const row = [];
+    for (let ev = 0; ev < k; ev++) row.push(eigenvecs[ev][i]);
+    const norm = Math.sqrt(row.reduce((s, v) => s + v * v, 0));
+    embedding.push(norm > 0 ? row.map(v => v / norm) : row);
+  }
+
+  // K-means on embedding
+  function kmeans(points, k, maxIter = 50) {
+    const dim = points[0].length;
+    const np = points.length;
+
+    // Initialize centroids with k-means++
+    const centroids = [];
+    centroids.push([...points[Math.floor(rng() * np)]]);
+
+    for (let c = 1; c < k; c++) {
+      const dists = points.map(p => {
+        let minD = Infinity;
+        for (const cent of centroids) {
+          let d = 0;
+          for (let j = 0; j < dim; j++) d += (p[j] - cent[j]) ** 2;
+          minD = Math.min(minD, d);
+        }
+        return minD;
       });
-      const best = Object.entries(freq).sort((a, b) => b[1] - a[1])[0][0];
-      if (+best !== labels[i]) { labels[i] = +best; changed = true; }
+      const total = dists.reduce((a, b) => a + b, 0);
+      let r = rng() * total, acc = 0;
+      for (let i = 0; i < np; i++) {
+        acc += dists[i];
+        if (acc >= r) { centroids.push([...points[i]]); break; }
+      }
+      if (centroids.length <= c) centroids.push([...points[Math.floor(rng() * np)]]);
     }
-    if (!changed) break;
+
+    let assignments = new Array(np).fill(0);
+    for (let iter = 0; iter < maxIter; iter++) {
+      // Assign
+      let changed = false;
+      for (let i = 0; i < np; i++) {
+        let bestC = 0, bestD = Infinity;
+        for (let c = 0; c < k; c++) {
+          let d = 0;
+          for (let j = 0; j < dim; j++) d += (points[i][j] - centroids[c][j]) ** 2;
+          if (d < bestD) { bestD = d; bestC = c; }
+        }
+        if (assignments[i] !== bestC) { assignments[i] = bestC; changed = true; }
+      }
+      if (!changed) break;
+
+      // Update centroids
+      for (let c = 0; c < k; c++) {
+        const members = [];
+        for (let i = 0; i < np; i++) if (assignments[i] === c) members.push(i);
+        if (members.length === 0) continue;
+        for (let j = 0; j < dim; j++) {
+          centroids[c][j] = members.reduce((s, m) => s + points[m][j], 0) / members.length;
+        }
+      }
+    }
+    return assignments;
   }
-  // remap labels to 0..k-1
-  const unique = [...new Set(labels)];
-  const map = {};
-  unique.forEach((l, i) => map[l] = i);
-  return labels.map(l => map[l]);
+
+  return kmeans(embedding, k);
 }
 
-const communityPalette = [
-  "#6c8cff","#34d399","#f472b6","#fbbf24","#a78bfa",
-  "#fb923c","#38bdf8","#e879f9","#4ade80","#f87171",
-  "#22d3ee","#facc15",
+// ── Color palette for clusters ───────────────────────────────────────
+const clusterPalette = [
+  "#6c8cff", "#34d399", "#f472b6", "#fbbf24", "#a78bfa",
+  "#fb923c", "#38bdf8", "#e879f9", "#4ade80", "#f87171",
+  "#22d3ee", "#facc15",
 ];
 
 // ── Sizing ───────────────────────────────────────────────────────────
@@ -344,39 +532,47 @@ function formatCap(b) {
 }
 
 // ── SVG setup ────────────────────────────────────────────────────────
-const width = window.innerWidth;
-const height = window.innerHeight;
+let width = window.innerWidth;
+let height = window.innerHeight;
 
 const svg = d3.select("#graph-container")
   .append("svg")
   .attr("width", width)
   .attr("height", height);
 
-// Glow filter
 const defs = svg.append("defs");
 const filter = defs.append("filter").attr("id", "glow");
 filter.append("feGaussianBlur").attr("stdDeviation", "3").attr("result", "coloredBlur");
-const merge = filter.append("feMerge");
-merge.append("feMergeNode").attr("in", "coloredBlur");
-merge.append("feMergeNode").attr("in", "SourceGraphic");
+const feMerge = filter.append("feMerge");
+feMerge.append("feMergeNode").attr("in", "coloredBlur");
+feMerge.append("feMergeNode").attr("in", "SourceGraphic");
 
 const g = svg.append("g");
 
-// Zoom
 const zoom = d3.zoom()
   .scaleExtent([0.2, 5])
   .on("zoom", (event) => g.attr("transform", event.transform));
 svg.call(zoom);
 
-// Tooltip ref
 const tooltip = d3.select("#tooltip");
 
-// ── Rendering function ───────────────────────────────────────────────
+// ── Main render ──────────────────────────────────────────────────────
 let simulation;
 
-function render(threshold, clusterMode) {
-  // Filter edges
-  const edges = allEdges.filter(e => e.correlation >= threshold)
+function render(threshold, numClusters) {
+  // Run spectral clustering with current k
+  const clusterAssignments = spectralCluster(corrMatrix, N, numClusters);
+
+  // Build cluster member lists for legend
+  const clusterMembers = {};
+  clusterAssignments.forEach((c, i) => {
+    if (!clusterMembers[c]) clusterMembers[c] = [];
+    clusterMembers[c].push(stocks[i].ticker);
+  });
+
+  // Filter edges by threshold
+  const edges = allEdges
+    .filter(e => e.correlation >= threshold)
     .map(e => ({ source: e.source, target: e.target, correlation: e.correlation }));
 
   // Nodes
@@ -384,21 +580,14 @@ function render(threshold, clusterMode) {
     ...s,
     index: i,
     radius: radiusScale(s.marketCap),
+    cluster: clusterAssignments[i],
   }));
 
-  // Community detection on current edge set
-  const communities = detectCommunities(nodes, edges);
-  nodes.forEach((n, i) => n.community = communities[i]);
+  const color = d => clusterPalette[d.cluster % clusterPalette.length];
 
-  // Color accessor
-  const color = (d) => {
-    if (clusterMode === "sector") return sectorColors[d.sector];
-    return communityPalette[d.community % communityPalette.length];
-  };
-
-  // Count connections per node
-  const connCount = new Array(nodes.length).fill(0);
-  const corrSum = new Array(nodes.length).fill(0);
+  // Connection stats
+  const connCount = new Array(N).fill(0);
+  const corrSum = new Array(N).fill(0);
   edges.forEach(e => {
     const si = typeof e.source === 'object' ? e.source.index : e.source;
     const ti = typeof e.target === 'object' ? e.target.index : e.target;
@@ -418,8 +607,8 @@ function render(threshold, clusterMode) {
     .join("line")
     .attr("class", "link")
     .attr("stroke", "#1e2a45")
-    .attr("stroke-width", d => 0.5 + d.correlation * 2)
-    .attr("stroke-opacity", d => 0.08 + d.correlation * 0.25);
+    .attr("stroke-width", d => 0.5 + d.correlation * 2.2)
+    .attr("stroke-opacity", d => 0.06 + d.correlation * 0.28);
 
   // Node groups
   const nodeSel = g.append("g")
@@ -444,7 +633,7 @@ function render(threshold, clusterMode) {
     .attr("font-size", d => {
       if (d.radius > 30) return 11;
       if (d.radius > 20) return 9;
-      return 0; // hidden for small nodes
+      return 0;
     })
     .attr("opacity", d => d.radius > 18 ? 1 : 0)
     .text(d => d.ticker);
@@ -467,36 +656,35 @@ function render(threshold, clusterMode) {
         .attr("stroke-opacity", e => {
           const si = typeof e.source === 'object' ? e.source.index : e.source;
           const ti = typeof e.target === 'object' ? e.target.index : e.target;
-          return (si === d.index || ti === d.index) ? 0.7 : 0.06;
+          return (si === d.index || ti === d.index) ? 0.75 : 0.04;
         });
 
       // Dim non-connected nodes
-      const connected = new Set();
+      const connected = new Set([d.index]);
       edges.forEach(e => {
         const si = typeof e.source === 'object' ? e.source.index : e.source;
         const ti = typeof e.target === 'object' ? e.target.index : e.target;
         if (si === d.index) connected.add(ti);
         if (ti === d.index) connected.add(si);
       });
-      connected.add(d.index);
 
       nodeSel.select("circle")
-        .attr("fill-opacity", n => connected.has(n.index) ? 0.9 : 0.15);
+        .attr("fill-opacity", n => connected.has(n.index) ? 0.9 : 0.12);
       nodeSel.select("text")
         .attr("opacity", n => {
-          if (n.radius <= 18 && !connected.has(n.index)) return 0;
-          if (n.radius <= 18 && connected.has(n.index)) return 0;
-          return connected.has(n.index) ? 1 : 0.15;
+          if (n.radius <= 18) return 0;
+          return connected.has(n.index) ? 1 : 0.12;
         });
 
       // Tooltip
       const avgCorr = connCount[d.index] > 0
-        ? (corrSum[d.index] / connCount[d.index]).toFixed(3)
-        : "N/A";
+        ? (corrSum[d.index] / connCount[d.index]).toFixed(3) : "N/A";
       tooltip.select(".tt-ticker").text(d.ticker).style("color", color(d));
       tooltip.select(".tt-name").text(d.name);
       tooltip.select(".tt-sector").text(d.sector);
       tooltip.select(".tt-mcap").text(formatCap(d.marketCap));
+      tooltip.select(".tt-cluster").text(`Cluster ${d.cluster + 1}`)
+        .style("color", color(d));
       tooltip.select(".tt-conn").text(connCount[d.index]);
       tooltip.select(".tt-corr").text(avgCorr);
       tooltip.style("display", "block");
@@ -505,8 +693,8 @@ function render(threshold, clusterMode) {
       const pad = 16;
       let x = event.clientX + pad;
       let y = event.clientY + pad;
-      if (x + 200 > width) x = event.clientX - 200 - pad;
-      if (y + 180 > height) y = event.clientY - 180 - pad;
+      if (x + 210 > window.innerWidth) x = event.clientX - 210 - pad;
+      if (y + 200 > window.innerHeight) y = event.clientY - 200 - pad;
       tooltip.style("left", x + "px").style("top", y + "px");
     })
     .on("mouseout", function() {
@@ -517,7 +705,7 @@ function render(threshold, clusterMode) {
 
       linkSel
         .attr("stroke", "#1e2a45")
-        .attr("stroke-opacity", d => 0.08 + d.correlation * 0.25);
+        .attr("stroke-opacity", d => 0.06 + d.correlation * 0.28);
 
       nodeSel.select("circle").attr("fill-opacity", 0.8);
       nodeSel.select("text").attr("opacity", d => d.radius > 18 ? 1 : 0);
@@ -546,67 +734,66 @@ function render(threshold, clusterMode) {
   simulation = d3.forceSimulation(nodes)
     .force("link", d3.forceLink(edges)
       .id(d => d.index)
-      .distance(d => 120 - d.correlation * 70)
-      .strength(d => 0.2 + d.correlation * 0.5))
-    .force("charge", d3.forceManyBody().strength(-250))
+      .distance(d => 130 - d.correlation * 80)
+      .strength(d => 0.15 + d.correlation * 0.5))
+    .force("charge", d3.forceManyBody().strength(-280))
     .force("center", d3.forceCenter(width / 2, height / 2))
-    .force("collision", d3.forceCollide().radius(d => d.radius + 4))
-    .force("x", d3.forceX(width / 2).strength(0.04))
-    .force("y", d3.forceY(height / 2).strength(0.04))
+    .force("collision", d3.forceCollide().radius(d => d.radius + 5))
+    .force("x", d3.forceX(width / 2).strength(0.035))
+    .force("y", d3.forceY(height / 2).strength(0.035))
     .on("tick", () => {
       linkSel
-        .attr("x1", d => d.source.x)
-        .attr("y1", d => d.source.y)
-        .attr("x2", d => d.target.x)
-        .attr("y2", d => d.target.y);
+        .attr("x1", d => d.source.x).attr("y1", d => d.source.y)
+        .attr("x2", d => d.target.x).attr("y2", d => d.target.y);
       nodeSel.attr("transform", d => `translate(${d.x},${d.y})`);
     });
 
   // ── Legend ──
   const legendDiv = d3.select("#legend");
   legendDiv.html("");
-  if (clusterMode === "sector") {
-    legendDiv.append("h3").text("Sectors");
-    Object.entries(sectorColors).forEach(([sector, col]) => {
-      const item = legendDiv.append("div").attr("class", "legend-item");
-      item.append("div").attr("class", "legend-dot").style("background", col);
-      item.append("span").text(sector);
-    });
-  } else {
-    legendDiv.append("h3").text("Communities (auto-detected)");
-    const numComm = new Set(communities).size;
-    for (let i = 0; i < numComm; i++) {
-      const item = legendDiv.append("div").attr("class", "legend-item");
-      item.append("div").attr("class", "legend-dot")
-        .style("background", communityPalette[i % communityPalette.length]);
-      item.append("span").text(`Cluster ${i + 1}`);
-    }
-  }
-  legendDiv.append("div").style("margin-top", "10px").style("font-size", "10px").style("color", "#556677")
-    .html("Node size = market cap");
+  legendDiv.append("h3").text("Clusters (correlation-based)");
+
+  const sortedClusters = Object.keys(clusterMembers)
+    .map(Number)
+    .sort((a, b) => a - b);
+
+  sortedClusters.forEach(c => {
+    const col = clusterPalette[c % clusterPalette.length];
+    const item = legendDiv.append("div").attr("class", "legend-item");
+    item.append("div").attr("class", "legend-dot").style("background", col);
+    item.append("span").text(`Cluster ${c + 1}`);
+    legendDiv.append("div").attr("class", "legend-members")
+      .text(clusterMembers[c].join(", "));
+  });
+
+  legendDiv.append("div")
+    .style("margin-top", "10px").style("font-size", "10px").style("color", "#556677")
+    .html("Node size = market cap<br>Edge opacity = correlation strength");
 }
 
 // ── Initial render ───────────────────────────────────────────────────
-let currentThreshold = 0.6;
-let currentCluster = "sector";
-render(currentThreshold, currentCluster);
+let currentThreshold = 0.55;
+let currentClusters = 6;
+render(currentThreshold, currentClusters);
 
 // ── Controls ─────────────────────────────────────────────────────────
 d3.select("#threshold-slider").on("input", function() {
   currentThreshold = +this.value;
   d3.select("#threshold-value").text(currentThreshold.toFixed(2));
-  render(currentThreshold, currentCluster);
+  render(currentThreshold, currentClusters);
 });
 
-d3.select("#cluster-method").on("change", function() {
-  currentCluster = this.value;
-  render(currentThreshold, currentCluster);
+d3.select("#cluster-slider").on("input", function() {
+  currentClusters = +this.value;
+  d3.select("#cluster-value").text(currentClusters);
+  render(currentThreshold, currentClusters);
 });
 
-// Resize
 window.addEventListener("resize", () => {
-  svg.attr("width", window.innerWidth).attr("height", window.innerHeight);
-  render(currentThreshold, currentCluster);
+  width = window.innerWidth;
+  height = window.innerHeight;
+  svg.attr("width", width).attr("height", height);
+  render(currentThreshold, currentClusters);
 });
 </script>
 
